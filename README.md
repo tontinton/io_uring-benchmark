@@ -1,3 +1,9 @@
+## Why?
+
+I wanted to see the difference between raw `io_uring` compared to Cloudflare's [pingora](https://github.com/cloudflare/pingora/blob/7ce6f4ac1c440756a63b0766f72dbeca25c6fc94/pingora-runtime/benches/hello.rs) non stealing task scheduler (single threaded tokio per core) and tokio's regular task stealing scheduler.
+
+## How?
+
 For regular run:
 
 ```sh
