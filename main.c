@@ -139,7 +139,7 @@ void add_close_request(struct io_uring *ring, struct request *req) {
 }
 
 void server_loop(struct io_uring *ring, int server_socket) {
-  struct io_uring_cqe *cqe;
+  struct io_uring_cqe *cqes[BACKLOG];
   struct sockaddr_in client_addr;
   int buffer_id;
   socklen_t client_addr_len = sizeof(client_addr);
@@ -153,53 +153,57 @@ void server_loop(struct io_uring *ring, int server_socket) {
   while (true) {
     io_uring_submit(ring);
 
-    if (io_uring_wait_cqe(ring, &cqe) < 0)
+    if (io_uring_wait_cqe(ring, &cqes[0]) < 0)
       fatal_error("io_uring_wait_cqe()");
 
-    struct request *req = (struct request *)cqe->user_data;
-    const int res = cqe->res;
+    const int count = io_uring_peek_batch_cqe(ring, cqes, ARRAY_SIZE(cqes));
+    for (int i = 0; i < count; ++i) {
+      struct io_uring_cqe *cqe = cqes[i];
+      struct request *req = (struct request *)cqe->user_data;
+      const int res = cqe->res;
 
-    if (res < 0) {
-      if (res == -ECONNRESET) {
-        continue;
+      if (res < 0) {
+        if (res == -ECONNRESET) {
+          break;
+        }
+        fprintf(stderr, "Async request failed: %s for event: %d\n",
+                strerror(-res), req->event_type);
+        exit(1);
       }
-      fprintf(stderr, "Async request failed: %s for event: %d\n",
-              strerror(-res), req->event_type);
-      exit(1);
-    }
 
-    switch (req->event_type) {
-    case EVENT_TYPE_ACCEPT:
-      add_accept_request(ring, server_socket, &client_addr, &client_addr_len);
+      switch (req->event_type) {
+      case EVENT_TYPE_ACCEPT:
+        add_accept_request(ring, server_socket, &client_addr, &client_addr_len);
 
-      const int yes = 1;
-      if (-1 ==
-          setsockopt(res, IPPROTO_TCP, TCP_NODELAY, (char *)&yes, sizeof(int)))
-        fatal_error("setsockopt(TCP_NODELAY)");
+        const int yes = 1;
+        if (-1 == setsockopt(res, IPPROTO_TCP, TCP_NODELAY, (char *)&yes,
+                             sizeof(int)))
+          fatal_error("setsockopt(TCP_NODELAY)");
 
-      add_read_request(ring, req, res);
-      break;
-    case EVENT_TYPE_READ:
-      buffer_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-      io_uring_buf_ring_add(br, bufs[buffer_id], READ_SZ, buffer_id,
-                            io_uring_buf_ring_mask(BUFFER_ENTRIES), 0);
-      io_uring_buf_ring_advance(br, 1);
+        add_read_request(ring, req, res);
+        break;
+      case EVENT_TYPE_READ:
+        buffer_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+        io_uring_buf_ring_add(br, bufs[buffer_id], READ_SZ, buffer_id,
+                              io_uring_buf_ring_mask(BUFFER_ENTRIES), 0);
+        io_uring_buf_ring_advance(br, 1);
 
-      if (!res) {
-        add_close_request(ring, req);
+        if (!res) {
+          add_close_request(ring, req);
+          break;
+        }
+        add_write_request(ring, req);
+        break;
+      case EVENT_TYPE_WRITE:
+        add_read_request(ring, req, req->client_socket);
+        break;
+      case EVENT_TYPE_CLOSE:
+        free(req);
         break;
       }
-      add_write_request(ring, req);
-      break;
-    case EVENT_TYPE_WRITE:
-      add_read_request(ring, req, req->client_socket);
-      break;
-    case EVENT_TYPE_CLOSE:
-      free(req);
-      break;
-    }
 
-    io_uring_cqe_seen(ring, cqe);
+      io_uring_cqe_seen(ring, cqe);
+    }
   }
 }
 
