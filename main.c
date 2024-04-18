@@ -102,40 +102,52 @@ int setup_listening_socket(int port) {
   return sock;
 }
 
-void add_accept_request(struct io_uring *ring, int server_socket,
+bool add_accept_request(struct io_uring *ring, int server_socket,
                         struct sockaddr_in *client_addr,
                         socklen_t *client_addr_len) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe)
+    return false;
   io_uring_prep_accept(sqe, server_socket, (struct sockaddr *)client_addr,
                        client_addr_len, 0);
   struct request *req = zh_malloc(sizeof(*req));
   req->event_type = EVENT_TYPE_ACCEPT;
   io_uring_sqe_set_data(sqe, req);
+  return true;
 }
 
-void add_read_request(struct io_uring *ring, struct request *req,
+bool add_read_request(struct io_uring *ring, struct request *req,
                       int client_socket) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe)
+    return false;
   req->event_type = EVENT_TYPE_READ;
   req->client_socket = client_socket;
   io_uring_prep_read(sqe, client_socket, NULL, READ_SZ, 0);
   io_uring_sqe_set_flags(sqe, IOSQE_BUFFER_SELECT);
   io_uring_sqe_set_data(sqe, req);
   sqe->buf_group = 0;
+  return true;
 }
 
-void add_write_request(struct io_uring *ring, struct request *req) {
+bool add_write_request(struct io_uring *ring, struct request *req) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe)
+    return false;
   req->event_type = EVENT_TYPE_WRITE;
   io_uring_prep_write(sqe, req->client_socket, content, content_len, 0);
   io_uring_sqe_set_data(sqe, req);
+  return true;
 }
 
-void add_close_request(struct io_uring *ring, struct request *req) {
+bool add_close_request(struct io_uring *ring, struct request *req) {
   struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+  if (!sqe)
+    return false;
   req->event_type = EVENT_TYPE_CLOSE;
   io_uring_prep_close(sqe, req->client_socket);
   io_uring_sqe_set_data(sqe, req);
+  return true;
 }
 
 void server_loop(struct io_uring *ring, int server_socket) {
@@ -163,9 +175,9 @@ void server_loop(struct io_uring *ring, int server_socket) {
       const int res = cqe->res;
 
       if (res < 0) {
-        if (res == -ECONNRESET) {
+        if (res == -ECONNRESET)
           break;
-        }
+
         fprintf(stderr, "Async request failed: %s for event: %d\n",
                 strerror(-res), req->event_type);
         exit(1);
@@ -173,29 +185,34 @@ void server_loop(struct io_uring *ring, int server_socket) {
 
       switch (req->event_type) {
       case EVENT_TYPE_ACCEPT:
-        add_accept_request(ring, server_socket, &client_addr, &client_addr_len);
+        if (!add_accept_request(ring, server_socket, &client_addr,
+                                &client_addr_len))
+          continue;
 
         const int yes = 1;
         if (-1 == setsockopt(res, IPPROTO_TCP, TCP_NODELAY, (char *)&yes,
                              sizeof(int)))
           fatal_error("setsockopt(TCP_NODELAY)");
 
-        add_read_request(ring, req, res);
+        if (!add_read_request(ring, req, res))
+          continue;
+
         break;
       case EVENT_TYPE_READ:
+        if (!res) {
+          if (!add_close_request(ring, req))
+            continue;
+        } else if (!add_write_request(ring, req))
+          continue;
+
         buffer_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
         io_uring_buf_ring_add(br, bufs[buffer_id], READ_SZ, buffer_id,
                               io_uring_buf_ring_mask(BUFFER_ENTRIES), 0);
         io_uring_buf_ring_advance(br, 1);
-
-        if (!res) {
-          add_close_request(ring, req);
-          break;
-        }
-        add_write_request(ring, req);
         break;
       case EVENT_TYPE_WRITE:
-        add_read_request(ring, req, req->client_socket);
+        if (!add_read_request(ring, req, req->client_socket))
+          continue;
         break;
       case EVENT_TYPE_CLOSE:
         free(req);
