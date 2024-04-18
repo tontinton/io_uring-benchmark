@@ -175,8 +175,10 @@ void server_loop(struct io_uring *ring, int server_socket) {
       const int res = cqe->res;
 
       if (res < 0) {
-        if (res == -ECONNRESET)
-          break;
+        if (res == -ECONNRESET) {
+          io_uring_cqe_seen(ring, cqe);
+          continue;
+        }
 
         fprintf(stderr, "Async request failed: %s for event: %d\n",
                 strerror(-res), req->event_type);
