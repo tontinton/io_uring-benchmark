@@ -148,9 +148,11 @@ bool add_close_request(struct io_uring *ring, struct request *req) {
 }
 
 void server_loop(struct io_uring *ring, int server_socket) {
-  struct io_uring_cqe *cqes[BACKLOG];
+  struct io_uring_cqe *cqe;
   struct sockaddr_in client_addr;
   int buffer_id;
+  unsigned int head;
+  unsigned int completed = 0;
   socklen_t client_addr_len = sizeof(client_addr);
 
   struct io_uring_buf_ring *br = setup_buffer_ring(ring);
@@ -163,9 +165,7 @@ void server_loop(struct io_uring *ring, int server_socket) {
     if (io_uring_submit_and_wait(ring, 1) < 0)
       fatal_error("io_uring_submit_and_wait()");
 
-    const int count = io_uring_peek_batch_cqe(ring, cqes, ARRAY_SIZE(cqes));
-    for (int i = 0; i < count; ++i) {
-      struct io_uring_cqe *cqe = cqes[i];
+    io_uring_for_each_cqe(ring, head, cqe) {
       struct request *req = (struct request *)cqe->user_data;
       const int res = cqe->res;
 
@@ -216,7 +216,12 @@ void server_loop(struct io_uring *ring, int server_socket) {
         break;
       }
 
-      io_uring_cqe_seen(ring, cqe);
+      ++completed;
+    }
+
+    if (completed > 0) {
+      io_uring_cq_advance(ring, completed);
+      completed = 0;
     }
   }
 }
