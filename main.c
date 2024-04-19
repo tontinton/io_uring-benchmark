@@ -163,10 +163,8 @@ void server_loop(struct io_uring *ring, int server_socket) {
   add_accept_request(ring, server_socket, &client_addr, &client_addr_len);
 
   while (true) {
-    io_uring_submit(ring);
-
-    if (io_uring_wait_cqe(ring, &cqes[0]) < 0)
-      fatal_error("io_uring_wait_cqe()");
+    if (io_uring_submit_and_wait(ring, 1) < 0)
+      fatal_error("io_uring_submit_and_wait()");
 
     const int count = io_uring_peek_batch_cqe(ring, cqes, ARRAY_SIZE(cqes));
     for (int i = 0; i < count; ++i) {
