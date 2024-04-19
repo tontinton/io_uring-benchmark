@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #include <ctype.h>
-#include <fcntl.h>
 #include <liburing.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -9,8 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #define SERVER_PORT 3003
 #define QUEUE_DEPTH 128
