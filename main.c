@@ -242,7 +242,8 @@ void *thread_start(void *arg) {
   if (0 != bind_thread_to_core((long)arg))
     fatal_error("bind_thread_to_core()");
 
-  io_uring_queue_init(QUEUE_DEPTH, &ring, 0);
+  if (io_uring_queue_init(QUEUE_DEPTH, &ring, 0) < 0)
+    fatal_error("io_uring_queue_init()");
 
   int server_socket = setup_listening_socket(SERVER_PORT);
   server_loop(&ring, server_socket);
