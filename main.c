@@ -91,7 +91,7 @@ int setup_listening_socket(int port) {
   memset(&srv_addr, 0, sizeof(srv_addr));
   srv_addr.sin_family = AF_INET;
   srv_addr.sin_port = htons(port);
-  srv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+  srv_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
   if (bind(sock, (const struct sockaddr *)&srv_addr, sizeof(srv_addr)) < 0)
     fatal_error("bind()");
