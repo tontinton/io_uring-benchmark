@@ -13,7 +13,6 @@
 #define QUEUE_DEPTH 128
 #define READ_SZ 1024
 #define BACKLOG 1024
-#define BUFFER_ENTRIES BACKLOG
 #define THREADS 10
 
 #define EVENT_TYPE_ACCEPT 0
@@ -26,9 +25,8 @@
 struct request {
   int event_type;
   int client_socket;
+  char buf[READ_SZ];
 };
-
-char bufs[BUFFER_ENTRIES][READ_SZ];
 
 const char content[] = "HTTP/1.1 200 OK\r\ncontent-length: 12\r\nconnection: "
                        "keep-alive\r\n\r\nHello world!";
@@ -44,30 +42,6 @@ void *zh_malloc(size_t size) {
   if (!buf)
     fatal_error("malloc()");
   return buf;
-}
-
-struct io_uring_buf_ring *setup_buffer_ring(struct io_uring *ring) {
-  struct io_uring_buf_reg reg = {0};
-  struct io_uring_buf_ring *br;
-
-  if (posix_memalign((void **)&br, sysconf(_SC_PAGESIZE),
-                     BUFFER_ENTRIES * sizeof(struct io_uring_buf_ring)))
-    return NULL;
-
-  reg.ring_addr = (unsigned long)br;
-  reg.ring_entries = BUFFER_ENTRIES;
-  reg.bgid = 0;
-  if (io_uring_register_buf_ring(ring, &reg, 0))
-    return NULL;
-
-  io_uring_buf_ring_init(br);
-  for (int i = 0; i < BUFFER_ENTRIES; i++) {
-    io_uring_buf_ring_add(br, bufs[i], READ_SZ, i,
-                          io_uring_buf_ring_mask(BUFFER_ENTRIES), i);
-  }
-
-  io_uring_buf_ring_advance(br, BUFFER_ENTRIES);
-  return br;
 }
 
 int setup_listening_socket(int port) {
@@ -120,10 +94,8 @@ bool add_read_request(struct io_uring *ring, struct request *req,
     return false;
   req->event_type = EVENT_TYPE_READ;
   req->client_socket = client_socket;
-  io_uring_prep_read(sqe, client_socket, NULL, READ_SZ, 0);
-  io_uring_sqe_set_flags(sqe, IOSQE_BUFFER_SELECT);
+  io_uring_prep_read(sqe, client_socket, req->buf, READ_SZ, 0);
   io_uring_sqe_set_data(sqe, req);
-  sqe->buf_group = 0;
   return true;
 }
 
@@ -150,14 +122,9 @@ bool add_close_request(struct io_uring *ring, struct request *req) {
 void server_loop(struct io_uring *ring, int server_socket) {
   struct io_uring_cqe *cqe;
   struct sockaddr_in client_addr;
-  int buffer_id;
   unsigned int head;
   unsigned int completed = 0;
   socklen_t client_addr_len = sizeof(client_addr);
-
-  struct io_uring_buf_ring *br = setup_buffer_ring(ring);
-  if (!br)
-    fatal_error("setup_buffer_ring()");
 
   add_accept_request(ring, server_socket, &client_addr, &client_addr_len);
 
@@ -201,11 +168,6 @@ void server_loop(struct io_uring *ring, int server_socket) {
             continue;
         } else if (!add_write_request(ring, req))
           continue;
-
-        buffer_id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-        io_uring_buf_ring_add(br, bufs[buffer_id], READ_SZ, buffer_id,
-                              io_uring_buf_ring_mask(BUFFER_ENTRIES), 0);
-        io_uring_buf_ring_advance(br, 1);
         break;
       case EVENT_TYPE_WRITE:
         if (!add_read_request(ring, req, req->client_socket))
