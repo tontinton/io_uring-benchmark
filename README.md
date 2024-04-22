@@ -11,17 +11,17 @@ I wanted to see the difference between raw `io_uring` compared to Cloudflare's [
 ```
   40 threads and 1000 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.15ms    3.19ms 101.03ms   89.10%
-    Req/Sec     8.86k     2.00k   46.60k    92.77%
+    Latency     1.63ms    2.40ms  57.33ms   90.01%
+    Req/Sec    22.13k     5.74k   99.39k    92.79%
   Latency Distribution
-     50%    2.28ms
-     75%    4.23ms
-     90%    6.54ms
-     99%   13.22ms
-  1790291 requests in 5.10s, 128.05MB read
+     50%  837.00us
+     75%    2.00ms
+     90%    4.03ms
+     99%    9.73ms
+  4478070 requests in 5.10s, 320.30MB read
   Socket errors: connect 19, read 0, write 0, timeout 0
-Requests/sec: 351146.31
-Transfer/sec:     25.12MB
+Requests/sec: 877837.44
+Transfer/sec:     62.79MB
 ```
 
 `tokio`:
@@ -29,17 +29,17 @@ Transfer/sec:     25.12MB
 ```
   40 threads and 1000 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.27ms    2.13ms  25.17ms   74.63%
-    Req/Sec     7.67k     1.83k   33.47k    94.60%
+    Latency     1.37ms    1.14ms  24.87ms   82.29%
+    Req/Sec    19.62k     4.69k  116.06k    93.26%
   Latency Distribution
-     50%    2.76ms
-     75%    4.24ms
-     90%    6.18ms
-     99%   10.24ms
-  1547893 requests in 5.09s, 110.71MB read
+     50%    1.03ms
+     75%    1.70ms
+     90%    2.81ms
+     99%    5.56ms
+  3952985 requests in 5.09s, 282.74MB read
   Socket errors: connect 19, read 0, write 0, timeout 0
-Requests/sec: 304181.03
-Transfer/sec:     21.76MB
+Requests/sec: 776239.06
+Transfer/sec:     55.52MB
 ```
 
 pigora's single threaded `tokio` per core:
@@ -47,18 +47,20 @@ pigora's single threaded `tokio` per core:
 ```
   40 threads and 1000 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency     3.41ms    1.39ms  16.23ms   72.82%
-    Req/Sec     7.11k     1.77k   35.11k    95.84%
+    Latency     1.34ms  499.93us   9.27ms   76.29%
+    Req/Sec    18.15k     5.09k  207.43k    95.67%
   Latency Distribution
-     50%    3.29ms
-     75%    4.17ms
-     90%    5.08ms
-     99%    7.59ms
-  1433327 requests in 5.10s, 102.52MB read
+     50%    1.28ms
+     75%    1.59ms
+     90%    1.92ms
+     99%    2.89ms
+  3672542 requests in 5.10s, 262.68MB read
   Socket errors: connect 19, read 0, write 0, timeout 0
-Requests/sec: 281234.92
-Transfer/sec:     20.12MB
+Requests/sec: 720086.93
+Transfer/sec:     51.50MB
 ```
+
+These were run on my machine ([System76 lemp11](https://tech-docs.system76.com/models/lemp11/README.html)).
 
 ## How?
 
